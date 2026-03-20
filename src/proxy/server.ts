@@ -14,6 +14,7 @@ import { randomUUID, createHash } from "crypto"
 import { withClaudeLogContext } from "../logger"
 import { fuzzyMatchAgentName } from "./agentMatch"
 import { buildAgentDefinitions } from "./agentDefs"
+import { createPassthroughMcpServer, stripMcpPrefix, PASSTHROUGH_MCP_NAME, PASSTHROUGH_MCP_PREFIX } from "./passthroughTools"
 
 // --- Session Tracking ---
 // Maps OpenCode session ID (or fingerprint) → Claude SDK session ID
@@ -415,6 +416,13 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
       const passthrough = Boolean(process.env.CLAUDE_PROXY_PASSTHROUGH)
       const capturedToolUses: Array<{ id: string; name: string; input: any }> = []
 
+      // In passthrough mode, register OpenCode's tools as MCP tools so Claude
+      // can actually call them (not just see them as text descriptions).
+      let passthroughMcp: ReturnType<typeof createPassthroughMcpServer> | undefined
+      if (passthrough && Array.isArray(body.tools) && body.tools.length > 0) {
+        passthroughMcp = createPassthroughMcpServer(body.tools)
+      }
+
 
 
       // In passthrough mode: block ALL tools, capture them for forwarding
@@ -426,7 +434,7 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
               hooks: [async (input: any) => {
                 capturedToolUses.push({
                   id: input.tool_use_id,
-                  name: input.tool_name,
+                  name: stripMcpPrefix(input.tool_name),
                   input: input.tool_input,
                 })
                 return {
@@ -480,10 +488,16 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
                 pathToClaudeCodeExecutable: claudeExecutable,
                 permissionMode: "bypassPermissions",
                 allowDangerouslySkipPermissions: true,
-                // In passthrough mode: block Claude Code-only tools that OpenCode can't handle
-                // In normal mode: block all built-ins, use MCP replacements
+                // In passthrough mode: block ALL SDK built-in tools, use OpenCode's via MCP
+                // In normal mode: block built-ins, use our own MCP replacements
                 ...(passthrough
-                  ? { disallowedTools: [...CLAUDE_CODE_ONLY_TOOLS] }
+                  ? {
+                      disallowedTools: [...BLOCKED_BUILTIN_TOOLS, ...CLAUDE_CODE_ONLY_TOOLS],
+                      ...(passthroughMcp ? {
+                        allowedTools: passthroughMcp.toolNames,
+                        mcpServers: { [PASSTHROUGH_MCP_NAME]: passthroughMcp.server },
+                      } : {}),
+                    }
                   : {
                       disallowedTools: [...BLOCKED_BUILTIN_TOOLS],
                       allowedTools: [...ALLOWED_MCP_TOOLS],
@@ -516,6 +530,10 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
                 // Preserve ALL content blocks (text, tool_use, thinking, etc.)
                 for (const block of message.message.content) {
                   const b = block as Record<string, unknown>
+                  // In passthrough mode, strip MCP prefix from tool names
+                  if (passthrough && b.type === "tool_use" && typeof b.name === "string") {
+                    b.name = stripMcpPrefix(b.name as string)
+                  }
                   contentBlocks.push(b)
                 }
               }
@@ -645,7 +663,13 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
                   permissionMode: "bypassPermissions",
                   allowDangerouslySkipPermissions: true,
                   ...(passthrough
-                    ? { disallowedTools: [...CLAUDE_CODE_ONLY_TOOLS] }
+                    ? {
+                        disallowedTools: [...BLOCKED_BUILTIN_TOOLS, ...CLAUDE_CODE_ONLY_TOOLS],
+                        ...(passthroughMcp ? {
+                          allowedTools: passthroughMcp.toolNames,
+                          mcpServers: { [PASSTHROUGH_MCP_NAME]: passthroughMcp.server },
+                        } : {}),
+                      }
                     : {
                         disallowedTools: [...BLOCKED_BUILTIN_TOOLS],
                         allowedTools: [...ALLOWED_MCP_TOOLS],
@@ -730,11 +754,14 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
                     if (eventType === "content_block_start") {
                       const block = (event as any).content_block
                       if (block?.type === "tool_use" && typeof block.name === "string") {
-                        if (block.name.startsWith("mcp__")) {
+                        if (passthrough && block.name.startsWith(PASSTHROUGH_MCP_PREFIX)) {
+                          // Passthrough mode: strip prefix and forward to OpenCode
+                          block.name = stripMcpPrefix(block.name)
+                        } else if (block.name.startsWith("mcp__")) {
+                          // Internal mode: skip all MCP tool blocks (internal execution)
                           if (eventIndex !== undefined) skipBlockIndices.add(eventIndex)
                           continue
                         }
-
                       }
                     }
 

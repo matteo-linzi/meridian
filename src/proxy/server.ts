@@ -188,6 +188,15 @@ const BLOCKED_BUILTIN_TOOLS = [
   "WebFetch", "WebSearch", "TodoWrite"
 ]
 
+// Tools that only exist in Claude Code, not in OpenCode.
+// Block these in passthrough mode so Claude never generates tool_use for them.
+const CLAUDE_CODE_ONLY_TOOLS = [
+  "AskUserQuestion",
+  "TodoWrite",
+  "TodoRead",
+  "ToolSearch",
+]
+
 const MCP_SERVER_NAME = "opencode"
 
 const ALLOWED_MCP_TOOLS = [
@@ -445,13 +454,15 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
                 pathToClaudeCodeExecutable: claudeExecutable,
                 permissionMode: "bypassPermissions",
                 allowDangerouslySkipPermissions: true,
-                // In passthrough mode: no MCP tools, no blocked tools (Claude uses its native tools)
-                // In normal mode: block built-ins, use MCP replacements
-                ...(passthrough ? {} : {
-                  disallowedTools: [...BLOCKED_BUILTIN_TOOLS],
-                  allowedTools: [...ALLOWED_MCP_TOOLS],
-                  mcpServers: { [MCP_SERVER_NAME]: opencodeMcpServer },
-                }),
+                // In passthrough mode: block Claude Code-only tools that OpenCode can't handle
+                // In normal mode: block all built-ins, use MCP replacements
+                ...(passthrough
+                  ? { disallowedTools: [...CLAUDE_CODE_ONLY_TOOLS] }
+                  : {
+                      disallowedTools: [...BLOCKED_BUILTIN_TOOLS],
+                      allowedTools: [...ALLOWED_MCP_TOOLS],
+                      mcpServers: { [MCP_SERVER_NAME]: opencodeMcpServer },
+                    }),
                 plugins: [],
                 env: { ...cleanEnv, ENABLE_TOOL_SEARCH: "false" },
                 ...(Object.keys(sdkAgents).length > 0 ? { agents: sdkAgents } : {}),
@@ -607,11 +618,13 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
                   includePartialMessages: true,
                   permissionMode: "bypassPermissions",
                   allowDangerouslySkipPermissions: true,
-                  ...(passthrough ? {} : {
-                    disallowedTools: [...BLOCKED_BUILTIN_TOOLS],
-                    allowedTools: [...ALLOWED_MCP_TOOLS],
-                    mcpServers: { [MCP_SERVER_NAME]: opencodeMcpServer },
-                  }),
+                  ...(passthrough
+                    ? { disallowedTools: [...CLAUDE_CODE_ONLY_TOOLS] }
+                    : {
+                        disallowedTools: [...BLOCKED_BUILTIN_TOOLS],
+                        allowedTools: [...ALLOWED_MCP_TOOLS],
+                        mcpServers: { [MCP_SERVER_NAME]: opencodeMcpServer },
+                      }),
                   plugins: [],
                   env: { ...cleanEnv, ENABLE_TOOL_SEARCH: "false" },
                   ...(Object.keys(sdkAgents).length > 0 ? { agents: sdkAgents } : {}),

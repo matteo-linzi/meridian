@@ -74,17 +74,38 @@ CLAUDE_PROXY_PASSTHROUGH=1 bun run proxy
 
 ### Connect OpenCode
 
+#### Environment Variables
+
 ```bash
 ANTHROPIC_API_KEY=dummy ANTHROPIC_BASE_URL=http://127.0.0.1:3456 opencode
 ```
 
 The `ANTHROPIC_API_KEY` can be any non-empty string — the proxy doesn't use it. Authentication is handled by your `claude login` session.
 
-### Shell Alias
+#### Shell Alias
 
 ```bash
-# Add to ~/.zshrc or ~/.bashrc
+# Add to ~/.zshrc or ~/.bashrc or ~/.config/fish/config.fish
 alias oc='ANTHROPIC_API_KEY=dummy ANTHROPIC_BASE_URL=http://127.0.0.1:3456 opencode'
+```
+
+#### OpenCode Config File
+
+Alternatively, the proxy URL and API key can be set globally in `~/.config/opencode/opencode.json`. This has the benefit of working in OpenCode Desktop as well.
+
+```json
+{
+  ...
+  "provider": {
+    "anthropic": {
+      "options": {
+        "baseURL": "http://127.0.0.1:3456",
+        "apiKey": "dummy"
+      }
+    }
+  }
+  ...
+}
 ```
 
 ## Modes

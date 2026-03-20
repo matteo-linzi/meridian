@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.0](https://github.com/rynfar/opencode-claude-max-proxy/compare/v1.7.3...v1.8.0) (2026-03-20)
+
+
+### Features
+
+* Docker support and README install options ([cfb8396](https://github.com/rynfar/opencode-claude-max-proxy/commit/cfb8396878ab7194ab5c8039e6a0c7abb68368a0))
+* Docker support and README install options ([d61670e](https://github.com/rynfar/opencode-claude-max-proxy/commit/d61670eaa7ec2004743cf505ceffd359dc11166b)), closes [#15](https://github.com/rynfar/opencode-claude-max-proxy/issues/15)
+
+
+### Bug Fixes
+
+* pass system prompt via appendSystemPrompt instead of merging into prompt ([2b55399](https://github.com/rynfar/opencode-claude-max-proxy/commit/2b5539919de9d538e142b0d5b81f83ef9d513a90))
+
 ## [1.7.3](https://github.com/rynfar/opencode-claude-max-proxy/compare/v1.7.2...v1.7.3) (2026-03-20)
 
 

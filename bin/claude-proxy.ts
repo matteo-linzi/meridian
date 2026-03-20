@@ -3,6 +3,14 @@
 import { startProxyServer } from "../src/proxy/server"
 import { execSync } from "child_process"
 
+// Prevent SDK subprocess crashes from killing the proxy
+process.on("uncaughtException", (err) => {
+  console.error(`[PROXY] Uncaught exception (recovered): ${err.message}`)
+})
+process.on("unhandledRejection", (reason) => {
+  console.error(`[PROXY] Unhandled rejection (recovered): ${reason instanceof Error ? reason.message : reason}`)
+})
+
 const port = parseInt(process.env.CLAUDE_PROXY_PORT || "3456", 10)
 const host = process.env.CLAUDE_PROXY_HOST || "127.0.0.1"
 const idleTimeoutSeconds = parseInt(process.env.CLAUDE_PROXY_IDLE_TIMEOUT_SECONDS || "120", 10)

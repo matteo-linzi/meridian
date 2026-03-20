@@ -153,7 +153,26 @@ Sessions are cached for 24 hours.
 | `CLAUDE_PROXY_PORT` | 3456 | Proxy server port |
 | `CLAUDE_PROXY_HOST` | 127.0.0.1 | Proxy server host |
 | `CLAUDE_PROXY_WORKDIR` | (cwd) | Working directory for Claude and tools |
+| `CLAUDE_PROXY_MAX_CONCURRENT` | 1 | Max concurrent SDK sessions (increase with caution) |
 | `CLAUDE_PROXY_IDLE_TIMEOUT_SECONDS` | 120 | Connection idle timeout |
+
+## Concurrency
+
+The proxy supports multiple OpenCode instances. Requests are serialized through a session queue — when one request is using the SDK, others wait. This prevents the SDK subprocess from being overwhelmed.
+
+For production use (multiple terminals, background agents), use the auto-restart supervisor:
+
+```bash
+CLAUDE_PROXY_PASSTHROUGH=1 ./bin/claude-proxy-supervisor.sh
+```
+
+The supervisor automatically restarts the proxy if the SDK subprocess crashes during cleanup. This is a known Bun limitation with concurrent streaming responses that we're working around.
+
+You can also increase concurrent sessions if your system handles it:
+
+```bash
+CLAUDE_PROXY_MAX_CONCURRENT=2 CLAUDE_PROXY_PASSTHROUGH=1 bun run proxy
+```
 
 ## Model Mapping
 
@@ -230,9 +249,7 @@ cat > ~/Library/LaunchAgents/com.claude-max-proxy.plist << EOF
     <string>com.claude-max-proxy</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$(which bun)</string>
-        <string>run</string>
-        <string>proxy</string>
+        <string>$(pwd)/bin/claude-proxy-supervisor.sh</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$(pwd)</string>
@@ -258,7 +275,7 @@ launchctl load ~/Library/LaunchAgents/com.claude-max-proxy.plist
 bun test
 ```
 
-98 tests across 12 files covering:
+106 tests across 13 files covering:
 - Passthrough tool forwarding and tool_result acceptance
 - PreToolUse hook interception and agent name fuzzy matching
 - SDK agent definition extraction (native OpenCode + oh-my-opencode)
@@ -267,6 +284,15 @@ bun test
 - Streaming message deduplication
 - Working directory propagation
 - Concurrent request handling
+- Error classification (auth, rate limit, billing, timeout)
+
+### Health Endpoint
+
+```bash
+curl http://127.0.0.1:3456/health
+```
+
+Returns auth status, subscription type, and proxy mode. Use this to verify the proxy is running and authenticated before connecting OpenCode.
 
 ## Architecture
 
@@ -281,11 +307,12 @@ src/
 ├── logger.ts          # Structured logging with AsyncLocalStorage context
 ├── plugin/
 │   └── claude-max-headers.ts  # OpenCode plugin for session header injection
-└── __tests__/         # 98 tests across 12 files
+└── __tests__/         # 106 tests across 13 files
     ├── helpers.ts
     ├── integration.test.ts
     ├── proxy-agent-definitions.test.ts
     ├── proxy-agent-fuzzy-match.test.ts
+    ├── proxy-error-handling.test.ts
     ├── proxy-mcp-filtering.test.ts
     ├── proxy-passthrough-concept.test.ts
     ├── proxy-pretooluse-hook.test.ts

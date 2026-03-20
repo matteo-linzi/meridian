@@ -245,6 +245,33 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
     })
   })
 
+  // --- Concurrency Control ---
+  // Each request spawns an SDK subprocess (cli.js, ~11MB). Spawning multiple
+  // simultaneously can crash the process. Serialize SDK queries with a queue.
+  const MAX_CONCURRENT_SESSIONS = parseInt(process.env.CLAUDE_PROXY_MAX_CONCURRENT || "1", 10)
+  let activeSessions = 0
+  const sessionQueue: Array<{ resolve: () => void }> = []
+
+  async function acquireSession(): Promise<void> {
+    if (activeSessions < MAX_CONCURRENT_SESSIONS) {
+      activeSessions++
+      return
+    }
+    // Wait for a slot
+    return new Promise<void>((resolve) => {
+      sessionQueue.push({ resolve })
+    })
+  }
+
+  function releaseSession(): void {
+    activeSessions--
+    const next = sessionQueue.shift()
+    if (next) {
+      activeSessions++
+      next.resolve()
+    }
+  }
+
   const handleMessages = async (
     c: Context,
     requestMeta: { requestId: string; endpoint: string; queueEnteredAt: number; queueStartedAt: number }
@@ -274,7 +301,7 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
             : "string"
           return `${m.role}[${contentTypes}]`
         }).join(" → ")
-        console.error(`[PROXY] ${requestMeta.requestId} model=${model} stream=${stream} tools=${body.tools?.length ?? 0} resume=${isResume} msgs=${msgSummary}`)
+        console.error(`[PROXY] ${requestMeta.requestId} model=${model} stream=${stream} tools=${body.tools?.length ?? 0} resume=${isResume} active=${activeSessions}/${MAX_CONCURRENT_SESSIONS} msgs=${msgSummary}`)
 
         claudeLog("request.received", {
           model,
@@ -862,18 +889,28 @@ export function createProxyServer(config: Partial<ProxyConfig> = {}) {
     })
   }
 
-  app.post("/v1/messages", (c) => {
+  app.post("/v1/messages", async (c) => {
     const requestId = c.req.header("x-request-id") || randomUUID()
     const startedAt = Date.now()
-    claudeLog("request.enter", { requestId, endpoint: "/v1/messages" })
-    return handleMessages(c, { requestId, endpoint: "/v1/messages", queueEnteredAt: startedAt, queueStartedAt: startedAt })
+    claudeLog("request.enter", { requestId, endpoint: "/v1/messages", queued: sessionQueue.length, active: activeSessions })
+    await acquireSession()
+    try {
+      return await handleMessages(c, { requestId, endpoint: "/v1/messages", queueEnteredAt: startedAt, queueStartedAt: Date.now() })
+    } finally {
+      releaseSession()
+    }
   })
 
-  app.post("/messages", (c) => {
+  app.post("/messages", async (c) => {
     const requestId = c.req.header("x-request-id") || randomUUID()
     const startedAt = Date.now()
-    claudeLog("request.enter", { requestId, endpoint: "/messages" })
-    return handleMessages(c, { requestId, endpoint: "/messages", queueEnteredAt: startedAt, queueStartedAt: startedAt })
+    claudeLog("request.enter", { requestId, endpoint: "/messages", queued: sessionQueue.length, active: activeSessions })
+    await acquireSession()
+    try {
+      return await handleMessages(c, { requestId, endpoint: "/messages", queueEnteredAt: startedAt, queueStartedAt: Date.now() })
+    } finally {
+      releaseSession()
+    }
   })
 
   // Health check endpoint — verifies auth status

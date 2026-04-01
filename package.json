@@ -19,19 +19,17 @@
     "bun": ">=1.0"
   },
   "scripts": {
-    "start": "./bin/claude-proxy-supervisor.sh",
-    "proxy": "./bin/claude-proxy-supervisor.sh",
-    "build": "rm -rf dist && bun build bin/cli.ts src/proxy/server.ts --outdir dist --target bun --splitting --external @anthropic-ai/claude-agent-sdk --entry-naming '[name].js' && tsc -p tsconfig.build.json",
+    "start": "bun run ./bin/cli.ts",
+    "dev": "bun run ./bin/cli.ts --no-supervisor",
+    "build": "rm -rf dist && bun build bin/cli.ts --outfile dist/cli.js --target bun --external @anthropic-ai/claude-agent-sdk && bun build src/proxy/server.ts --outfile dist/server.js --target bun --external @anthropic-ai/claude-agent-sdk && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run build",
     "test": "bun test --path-ignore-patterns '**/*session-store*' && bun test src/__tests__/proxy-session-store.test.ts && bun test src/__tests__/session-store-pruning.test.ts && bun test src/__tests__/proxy-session-store-locking.test.ts",
-    "typecheck": "tsc --noEmit",
-    "proxy:direct": "bun run ./bin/cli.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.80"
   },
   "devDependencies": {
-    "@hono/node-server": "^1.19.11",
     "@types/bun": "^1.3.11",
     "@types/node": "^22.0.0",
     "glob": "^13.0.0",
